@@ -3,11 +3,18 @@ namespace Kunnu\Dropbox\Http\Clients;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Request;
+use Kunnu\Dropbox\Exceptions\DropboxApiEndpointClientException;
+use Kunnu\Dropbox\Exceptions\DropboxApiInvalidInputClientException;
+use Kunnu\Dropbox\Exceptions\DropboxApiInvalidTokenClientException;
+use Kunnu\Dropbox\Exceptions\DropboxApiServerException;
+use Kunnu\Dropbox\Exceptions\DropboxApiTooManyRequestsClientException;
+use Kunnu\Dropbox\Exceptions\DropboxApiUnknownClientException;
+use Kunnu\Dropbox\Exceptions\DropboxRequestException;
+use Kunnu\Dropbox\Models\EndpointError;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Exception\RequestException;
 use Kunnu\Dropbox\Http\DropboxRawResponse;
-use Kunnu\Dropbox\Exceptions\DropboxClientException;
 
 /**
  * DropboxGuzzleHttpClient
@@ -35,15 +42,20 @@ class DropboxGuzzleHttpClient implements DropboxHttpClientInterface
     /**
      * Send request to the server and fetch the raw response
      *
-     * @param  string $url     URL/Endpoint to send the request to
-     * @param  string $method  Request Method
+     * @param  string $url URL/Endpoint to send the request to
+     * @param  string $method Request Method
      * @param  string|resource|StreamInterface $body Request Body
-     * @param  array  $headers Request Headers
-     * @param  array  $options Additional Options
+     * @param  array $headers Request Headers
+     * @param  array $options Additional Options
+     * @return DropboxRawResponse Raw response from the server
      *
-     * @return \Kunnu\Dropbox\Http\DropboxRawResponse Raw response from the server
-     *
-     * @throws \Kunnu\Dropbox\Exceptions\DropboxClientException
+     * @throws DropboxApiEndpointClientException
+     * @throws DropboxApiInvalidInputClientException
+     * @throws DropboxApiInvalidTokenClientException
+     * @throws DropboxApiServerException
+     * @throws DropboxApiTooManyRequestsClientException
+     * @throws DropboxApiUnknownClientException
+     * @throws DropboxRequestException
      */
     public function send($url, $method, $body, $headers = [], $options = [])
     {
@@ -57,14 +69,43 @@ class DropboxGuzzleHttpClient implements DropboxHttpClientInterface
             $rawResponse = $e->getResponse();
 
             if (!$rawResponse instanceof ResponseInterface) {
-                throw new DropboxClientException($e->getMessage(), $e->getCode());
+                throw new DropboxRequestException($e->getMessage(), $e->getCode(), $e);
             }
         }
 
-        //Something went wrong
-        if ($rawResponse->getStatusCode() >= 400) {
-            throw new DropboxClientException($rawResponse->getBody());
+        $httpStatusCode = $rawResponse->getStatusCode();
+
+        if ($httpStatusCode >= 400) {
+            $body = $this->getResponseBody($rawResponse);
+
+            if ($httpStatusCode >= 500) {
+                throw new DropboxApiServerException($body, $httpStatusCode);
+            }
+
+            //Something went wrong
+            switch ($httpStatusCode) {
+                case 400:
+                    throw new DropboxApiInvalidInputClientException($body, $httpStatusCode);
+
+                case 401:
+                    throw new DropboxApiInvalidTokenClientException($body, $httpStatusCode);
+
+                case 409:
+                    $decodedBody = json_decode($body, TRUE);
+                    if (!is_array($decodedBody) || !is_array($decodedBody['error'])) {
+                        throw new DropboxApiUnknownClientException($body, $httpStatusCode);
+                    }
+                    $endpointError = new EndpointError($decodedBody);
+                    throw new DropboxApiEndpointClientException($endpointError, $body, $httpStatusCode);
+
+                case 429:
+                    throw new DropboxApiTooManyRequestsClientException($body, $httpStatusCode);
+
+                default:
+                    throw new DropboxApiUnknownClientException($body, $httpStatusCode);
+            }
         }
+
 
         if (array_key_exists('sink', $options)) {
             //Response Body is saved to a file
@@ -75,7 +116,6 @@ class DropboxGuzzleHttpClient implements DropboxHttpClientInterface
         }
 
         $rawHeaders = $rawResponse->getHeaders();
-        $httpStatusCode = $rawResponse->getStatusCode();
 
         //Create and return a DropboxRawResponse object
         return new DropboxRawResponse($rawHeaders, $body, $httpStatusCode);

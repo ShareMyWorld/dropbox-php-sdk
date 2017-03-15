@@ -52,7 +52,7 @@ class SessionPersistentDataStore implements PersistentDataStoreInterface
     /**
      * Clear the key from the store
      *
-     * @param $key Data Key
+     * @param string $key Data Key
      *
      * @return void
      */

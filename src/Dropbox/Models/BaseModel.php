@@ -70,7 +70,7 @@ class BaseModel implements ModelInterface
      * @param  string $property
      * @param  string $value
      *
-     * @return mixed|null
+     * @return void
      */
     public function __set($property, $value)
     {

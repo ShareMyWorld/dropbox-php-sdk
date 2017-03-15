@@ -86,6 +86,7 @@ class DropboxRequest
      * @param string $endpointType Endpoint type ['api'|'content']
      * @param mixed  $params       Request Params
      * @param array  $headers      Headers to send along with the Request
+     * @param string|null $contentType Content Type of the Request
      */
     public function __construct($method, $endpoint, $accessToken, $endpointType = "api", array $params = [], array $headers = [], $contentType = null)
     {
